@@ -1,14 +1,15 @@
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const THEME_KEY = "budgetbeacon_theme";
 
 const nodes = {
   sideLinks: [...document.querySelectorAll(".side-link")],
   pages: [...document.querySelectorAll(".page")],
-  accountSelect: document.getElementById("accountSelect"),
   quickExpenseBtn: document.getElementById("quickExpenseBtn"),
   quickIncomeBtn: document.getElementById("quickIncomeBtn"),
   quickGoalBtn: document.getElementById("quickGoalBtn"),
-  topChecking: document.getElementById("topChecking"),
-  topSavings: document.getElementById("topSavings"),
+  loginBtn: document.getElementById("loginBtn"),
+  signupBtn: document.getElementById("signupBtn"),
+  themeToggle: document.getElementById("themeToggle"),
   todayLabel: document.getElementById("todayLabel"),
   availableBalance: document.getElementById("availableBalance"),
   healthBadge: document.getElementById("healthBadge"),
@@ -28,8 +29,28 @@ const nodes = {
   transactionForm: document.getElementById("transactionForm"),
   goalForm: document.getElementById("goalForm"),
   settingsForm: document.getElementById("settingsForm"),
+  settingsStatus: document.getElementById("settingsStatus"),
   goalRowTpl: document.getElementById("goalRowTpl"),
+  authModal: document.getElementById("authModal"),
+  authTitle: document.getElementById("authTitle"),
+  authSubmitBtn: document.getElementById("authSubmitBtn"),
+  authCloseBtn: document.getElementById("authCloseBtn"),
+  authForm: document.getElementById("authForm"),
 };
+
+function applyTheme(theme) {
+  document.body.dataset.theme = theme;
+  nodes.themeToggle.textContent = theme === "dark" ? "Light" : "Dark";
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === "dark" || saved === "light") {
+    applyTheme(saved);
+    return;
+  }
+  applyTheme("light");
+}
 
 function setGreetingDate() {
   const now = new Date();
@@ -44,6 +65,11 @@ function setPage(page) {
   for (const panel of nodes.pages) {
     panel.classList.toggle("active", panel.dataset.page === page);
   }
+  requestAnimationFrame(() => {
+    applyRevealTargets();
+    const activePage = document.querySelector(`.page[data-page="${page}"]`);
+    replayPageAnimations(activePage);
+  });
 }
 
 for (const link of nodes.sideLinks) {
@@ -58,6 +84,48 @@ async function api(path, options = {}) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
   return data;
+}
+
+let revealObserver = null;
+function applyRevealTargets() {
+  const targets = document.querySelectorAll(".hero, .stat-card, .panel, .sidebar");
+  targets.forEach((element, index) => {
+    if (!element.classList.contains("reveal")) {
+      element.classList.add("reveal");
+      element.style.setProperty("--reveal-delay", `${Math.min(index * 40, 360)}ms`);
+    }
+    revealObserver?.observe(element);
+  });
+}
+
+function initScrollAnimations() {
+  revealObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in-view");
+          revealObserver.unobserve(entry.target);
+        }
+      }
+    },
+    { threshold: 0.16 }
+  );
+  applyRevealTargets();
+}
+
+function replayPageAnimations(pageElement) {
+  if (!pageElement) return;
+  const targets = pageElement.querySelectorAll(".hero, .stat-card, .panel");
+  targets.forEach((element, index) => {
+    if (revealObserver) revealObserver.unobserve(element);
+    element.classList.remove("in-view");
+    element.classList.add("reveal");
+    element.style.setProperty("--reveal-delay", `${Math.min(index * 45, 320)}ms`);
+    void element.offsetWidth;
+    setTimeout(() => {
+      element.classList.add("in-view");
+    }, index * 45);
+  });
 }
 
 function buildHealthMessage(available, savingsRate) {
@@ -82,8 +150,6 @@ function renderDashboard(summary) {
   nodes.checkingBalance.textContent = currency.format(balances.checking || 0);
   nodes.savingsBalance.textContent = currency.format(balances.savings || 0);
   nodes.creditUsed.textContent = currency.format(balances.creditUsed || 0);
-  nodes.topChecking.textContent = currency.format(balances.checking || 0);
-  nodes.topSavings.textContent = currency.format(balances.savings || 0);
 }
 
 function renderSettings(settings = {}) {
@@ -228,7 +294,7 @@ nodes.quickExpenseBtn.addEventListener("click", () => {
   setPage("transactions");
   nodes.transactionForm.elements.description.value = "New expense";
   nodes.transactionForm.elements.amount.value = "-1";
-  nodes.transactionForm.elements.account.value = nodes.accountSelect.value === "all" ? "checking" : nodes.accountSelect.value;
+  nodes.transactionForm.elements.account.value = "checking";
   nodes.transactionForm.elements.description.focus();
 });
 
@@ -236,7 +302,7 @@ nodes.quickIncomeBtn.addEventListener("click", () => {
   setPage("transactions");
   nodes.transactionForm.elements.description.value = "New income";
   nodes.transactionForm.elements.amount.value = "";
-  nodes.transactionForm.elements.account.value = nodes.accountSelect.value === "all" ? "checking" : nodes.accountSelect.value;
+  nodes.transactionForm.elements.account.value = "checking";
   nodes.transactionForm.elements.description.focus();
 });
 
@@ -245,30 +311,67 @@ nodes.quickGoalBtn.addEventListener("click", () => {
   nodes.goalForm.elements.name.focus();
 });
 
-nodes.accountSelect.addEventListener("change", () => {
-  const value = nodes.accountSelect.value;
-  if (value === "all") setPage("dashboard");
-  else if (value === "savings") setPage("goals");
-  else setPage("transactions");
-  if (value !== "all") {
-    nodes.transactionForm.elements.account.value = value;
-  }
-});
-
 nodes.settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(nodes.settingsForm);
-  const payload = {
-    baseCheckingBalance: Number(form.get("baseCheckingBalance")),
-    baseSavingsBalance: Number(form.get("baseSavingsBalance")),
-    monthlyBudget: Number(form.get("monthlyBudget")),
+  const toNumber = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
   };
-  await api("/settings", { method: "PATCH", body: JSON.stringify(payload) });
-  await refresh();
+  const currentChecking = Number(nodes.settingsForm.elements.baseCheckingBalance.value);
+  const currentSavings = Number(nodes.settingsForm.elements.baseSavingsBalance.value);
+  const currentBudget = Number(nodes.settingsForm.elements.monthlyBudget.value);
+  const payload = {
+    baseCheckingBalance: toNumber(form.get("baseCheckingBalance"), currentChecking),
+    baseSavingsBalance: toNumber(form.get("baseSavingsBalance"), currentSavings),
+    monthlyBudget: toNumber(form.get("monthlyBudget"), currentBudget),
+  };
+  try {
+    await api("/settings", { method: "PATCH", body: JSON.stringify(payload) });
+    nodes.settingsStatus.textContent = "Setup updated successfully.";
+    nodes.settingsStatus.className = "form-status success";
+    await refresh();
+  } catch (err) {
+    nodes.settingsStatus.textContent = err.message || "Update failed.";
+    nodes.settingsStatus.className = "form-status error";
+  }
 });
 
+nodes.themeToggle.addEventListener("click", () => {
+  const current = document.body.dataset.theme === "dark" ? "dark" : "light";
+  const next = current === "dark" ? "light" : "dark";
+  applyTheme(next);
+  localStorage.setItem(THEME_KEY, next);
+});
+
+function openAuth(mode) {
+  const isLogin = mode === "login";
+  nodes.authTitle.textContent = isLogin ? "Welcome Back" : "Create Your Account";
+  nodes.authSubmitBtn.textContent = isLogin ? "Log in" : "Sign up";
+  nodes.authModal.classList.remove("hidden");
+  nodes.authModal.setAttribute("aria-hidden", "false");
+}
+
+function closeAuth() {
+  nodes.authModal.classList.add("hidden");
+  nodes.authModal.setAttribute("aria-hidden", "true");
+}
+
+nodes.loginBtn.addEventListener("click", () => openAuth("login"));
+nodes.signupBtn.addEventListener("click", () => openAuth("signup"));
+nodes.authCloseBtn.addEventListener("click", closeAuth);
+nodes.authModal.addEventListener("click", (event) => {
+  if (event.target === nodes.authModal) closeAuth();
+});
+nodes.authForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  alert("Authentication UI added. Backend auth is not connected yet.");
+});
+
+initTheme();
 setGreetingDate();
 setPage("dashboard");
+initScrollAnimations();
 refresh().catch((err) => {
   console.error(err);
   alert(err.message);

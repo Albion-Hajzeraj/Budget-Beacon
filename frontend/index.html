@@ -16,29 +16,13 @@
         </div>
       </div>
       <div class="top-actions">
-        <label class="account-picker">
-          <span>Account</span>
-          <select id="accountSelect">
-            <option value="all">All Accounts</option>
-            <option value="checking">Everyday Checking</option>
-            <option value="savings">Savings Vault</option>
-            <option value="credit">Credit Card</option>
-          </select>
-        </label>
         <button class="quick-btn" id="quickExpenseBtn">+ Expense</button>
         <button class="quick-btn" id="quickIncomeBtn">+ Income</button>
         <button class="quick-btn" id="quickGoalBtn">+ Goal</button>
       </div>
-      <div class="top-accounts">
-        <div class="top-account">
-          <span>Checking</span>
-          <strong id="topChecking">$0.00</strong>
-        </div>
-        <div class="top-account">
-          <span>Savings</span>
-          <strong id="topSavings">$0.00</strong>
-        </div>
-      </div>
+      <button class="quick-btn" id="loginBtn" type="button">Log in</button>
+      <button class="quick-btn" id="signupBtn" type="button">Sign up</button>
+      <button class="quick-btn" id="themeToggle" type="button">Dark</button>
       <div class="profile-chip">HP</div>
     </header>
 
@@ -126,6 +110,7 @@
               <input name="monthlyBudget" type="number" step="0.01" placeholder="Monthly spending budget" />
               <button type="submit">Update setup</button>
             </form>
+            <p id="settingsStatus" class="form-status"></p>
           </article>
         </section>
 
@@ -191,6 +176,19 @@
         </section>
       </section>
     </main>
+
+    <section id="authModal" class="auth-modal hidden" aria-hidden="true">
+      <div class="auth-card">
+        <button id="authCloseBtn" class="auth-close" type="button">x</button>
+        <h3 id="authTitle">Welcome Back</h3>
+        <p id="authSubtitle">This is a design preview. Authentication is not connected yet.</p>
+        <form id="authForm" class="form">
+          <input type="email" placeholder="Email address" required />
+          <input type="password" placeholder="Password" required />
+          <button id="authSubmitBtn" type="submit">Log in</button>
+        </form>
+      </div>
+    </section>
 
     <template id="goalRowTpl">
       <li class="goal-item">
