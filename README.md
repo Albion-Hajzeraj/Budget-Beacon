@@ -9,6 +9,7 @@ First implementation of the BudgetBeacon backend API.
 - Savings goal tracking
 - Dashboard summary (income, expenses, net, savings rate, top categories)
 - Rule-based "AI-style" financial insights
+- Disk persistence for all transactions/goals (`backend/data/store.json`)
 
 ## Run
 
@@ -17,6 +18,7 @@ node backend/backend.js
 ```
 
 Server runs at `http://localhost:4000`.
+Data is automatically persisted to `backend/data/store.json` and restored on restart.
 
 ## Quick test flow
 

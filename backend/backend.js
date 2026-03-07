@@ -1,14 +1,19 @@
 const http = require("http");
 const { URL } = require("url");
+const fs = require("fs/promises");
+const path = require("path");
 
 const PORT = process.env.PORT || 4000;
-
-const state = {
+const DATA_DIR = path.join(__dirname, "data");
+const STORE_FILE = path.join(DATA_DIR, "store.json");
+const DEFAULT_STATE = {
   transactions: [],
   goals: [],
   nextTransactionId: 1,
   nextGoalId: 1,
 };
+
+const state = { ...DEFAULT_STATE };
 
 const categoryRules = [
   { keywords: ["uber", "lyft", "taxi", "metro", "bus", "train", "fuel", "gas"], category: "Transport" },
@@ -59,6 +64,35 @@ function normalizeAmount(amount) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100) / 100;
+}
+
+async function ensureDataDir() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+}
+
+async function loadState() {
+  await ensureDataDir();
+  try {
+    const raw = await fs.readFile(STORE_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    state.transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+    state.goals = Array.isArray(parsed.goals) ? parsed.goals : [];
+    state.nextTransactionId = Number.isInteger(parsed.nextTransactionId) ? parsed.nextTransactionId : 1;
+    state.nextGoalId = Number.isInteger(parsed.nextGoalId) ? parsed.nextGoalId : 1;
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+    await persistState();
+  }
+}
+
+let writeChain = Promise.resolve();
+function persistState() {
+  writeChain = writeChain.then(async () => {
+    await ensureDataDir();
+    const payload = JSON.stringify(state, null, 2);
+    await fs.writeFile(STORE_FILE, payload, "utf8");
+  });
+  return writeChain;
 }
 
 function categorize(description, amount) {
@@ -205,6 +239,9 @@ async function handler(req, res) {
       if (built) imported.push(built);
       else rejected.push(tx);
     }
+    if (imported.length > 0) {
+      await persistState();
+    }
 
     sendJson(res, 200, {
       importedCount: imported.length,
@@ -224,6 +261,7 @@ async function handler(req, res) {
       });
       return;
     }
+    await persistState();
     sendJson(res, 201, { transaction: built });
     return;
   }
@@ -256,6 +294,7 @@ async function handler(req, res) {
     };
 
     state.goals.push(goal);
+    await persistState();
     sendJson(res, 201, { goal });
     return;
   }
@@ -276,12 +315,22 @@ async function handler(req, res) {
   sendJson(res, 404, { error: "Route not found" });
 }
 
-const server = http.createServer((req, res) => {
-  handler(req, res).catch((err) => {
-    sendJson(res, 500, { error: err.message || "Internal server error" });
-  });
-});
+async function start() {
+  await loadState();
 
-server.listen(PORT, () => {
-  console.log(`BudgetBeacon API listening on http://localhost:${PORT}`);
+  const server = http.createServer((req, res) => {
+    handler(req, res).catch((err) => {
+      sendJson(res, 500, { error: err.message || "Internal server error" });
+    });
+  });
+
+  server.listen(PORT, () => {
+    console.log(`BudgetBeacon API listening on http://localhost:${PORT}`);
+    console.log(`Data file: ${STORE_FILE}`);
+  });
+}
+
+start().catch((err) => {
+  console.error("Failed to start BudgetBeacon API:", err);
+  process.exit(1);
 });
