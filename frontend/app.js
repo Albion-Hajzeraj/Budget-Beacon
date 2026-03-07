@@ -1,9 +1,14 @@
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-const MONTHLY_BUDGET = 3000;
-const OPENING_BALANCE = 4500;
-
 const nodes = {
+  sideLinks: [...document.querySelectorAll(".side-link")],
+  pages: [...document.querySelectorAll(".page")],
+  accountSelect: document.getElementById("accountSelect"),
+  quickExpenseBtn: document.getElementById("quickExpenseBtn"),
+  quickIncomeBtn: document.getElementById("quickIncomeBtn"),
+  quickGoalBtn: document.getElementById("quickGoalBtn"),
+  topChecking: document.getElementById("topChecking"),
+  topSavings: document.getElementById("topSavings"),
   todayLabel: document.getElementById("todayLabel"),
   availableBalance: document.getElementById("availableBalance"),
   healthBadge: document.getElementById("healthBadge"),
@@ -15,12 +20,14 @@ const nodes = {
   savingsBalance: document.getElementById("savingsBalance"),
   creditUsed: document.getElementById("creditUsed"),
   insightsList: document.getElementById("insightsList"),
+  insightsListSecondary: document.getElementById("insightsListSecondary"),
   categoriesChart: document.getElementById("categoriesChart"),
   txTableBody: document.getElementById("txTableBody"),
   activityCount: document.getElementById("activityCount"),
   goalsList: document.getElementById("goalsList"),
   transactionForm: document.getElementById("transactionForm"),
   goalForm: document.getElementById("goalForm"),
+  settingsForm: document.getElementById("settingsForm"),
   goalRowTpl: document.getElementById("goalRowTpl"),
 };
 
@@ -28,6 +35,19 @@ function setGreetingDate() {
   const now = new Date();
   const pretty = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   nodes.todayLabel.textContent = `Your overview for ${pretty}`;
+}
+
+function setPage(page) {
+  for (const link of nodes.sideLinks) {
+    link.classList.toggle("active", link.dataset.page === page);
+  }
+  for (const panel of nodes.pages) {
+    panel.classList.toggle("active", panel.dataset.page === page);
+  }
+}
+
+for (const link of nodes.sideLinks) {
+  link.addEventListener("click", () => setPage(link.dataset.page));
 }
 
 async function api(path, options = {}) {
@@ -47,35 +67,43 @@ function buildHealthMessage(available, savingsRate) {
   return "Early momentum: focus on one category this week";
 }
 
-function renderDashboard(summary, goals) {
+function renderDashboard(summary) {
   const totals = summary.totals || { income: 0, expenses: 0, net: 0, savingsRatePct: 0 };
-  const available = OPENING_BALANCE + totals.net;
-  const savingsTotal = goals.reduce((sum, g) => sum + Number(g.currentAmount || 0), 0);
-  const credit = Math.max(0, totals.expenses * 0.35);
-  const budgetLeft = MONTHLY_BUDGET - totals.expenses;
+  const balances = summary.balances || { available: 0, checking: 0, savings: 0, creditUsed: 0 };
+  const budget = summary.budget || { monthlyBudget: 0, remaining: 0 };
 
-  nodes.availableBalance.textContent = currency.format(available);
-  nodes.healthBadge.textContent = buildHealthMessage(available, totals.savingsRatePct || 0);
+  nodes.availableBalance.textContent = currency.format(balances.available);
+  nodes.healthBadge.textContent = buildHealthMessage(balances.available || 0, totals.savingsRatePct || 0);
   nodes.monthlyIncome.textContent = currency.format(totals.income || 0);
   nodes.monthlySpend.textContent = currency.format(totals.expenses || 0);
   nodes.savingsRate.textContent = `${Number(totals.savingsRatePct || 0).toFixed(1)}%`;
-  nodes.budgetRemaining.textContent = currency.format(budgetLeft);
-  nodes.budgetRemaining.style.color = budgetLeft < 0 ? "#c63d3d" : "#0fa77b";
+  nodes.budgetRemaining.textContent = currency.format(budget.remaining || 0);
+  nodes.budgetRemaining.style.color = budget.remaining < 0 ? "#c63d3d" : "#8f6d12";
+  nodes.checkingBalance.textContent = currency.format(balances.checking || 0);
+  nodes.savingsBalance.textContent = currency.format(balances.savings || 0);
+  nodes.creditUsed.textContent = currency.format(balances.creditUsed || 0);
+  nodes.topChecking.textContent = currency.format(balances.checking || 0);
+  nodes.topSavings.textContent = currency.format(balances.savings || 0);
+}
 
-  nodes.checkingBalance.textContent = currency.format(available - savingsTotal);
-  nodes.savingsBalance.textContent = currency.format(savingsTotal);
-  nodes.creditUsed.textContent = currency.format(credit);
+function renderSettings(settings = {}) {
+  if (!nodes.settingsForm) return;
+  nodes.settingsForm.elements.baseCheckingBalance.value = Number(settings.baseCheckingBalance || 0).toFixed(2);
+  nodes.settingsForm.elements.baseSavingsBalance.value = Number(settings.baseSavingsBalance || 0).toFixed(2);
+  nodes.settingsForm.elements.monthlyBudget.value = Number(settings.monthlyBudget || 0).toFixed(2);
 }
 
 function renderInsights(items) {
-  nodes.insightsList.innerHTML = "";
-  const details = items.length
+  const data = items.length
     ? items
-    : ["Your dashboard is ready. Add a few transactions to unlock personal coaching notes."];
-  for (const text of details) {
-    const li = document.createElement("li");
-    li.textContent = text;
-    nodes.insightsList.appendChild(li);
+    : ["Your dashboard is ready. Add transactions to unlock coaching notes."];
+  for (const list of [nodes.insightsList, nodes.insightsListSecondary]) {
+    list.innerHTML = "";
+    for (const text of data) {
+      const li = document.createElement("li");
+      li.textContent = text;
+      list.appendChild(li);
+    }
   }
 }
 
@@ -125,7 +153,7 @@ function renderGoals(goals) {
   if (!goals.length) {
     const empty = document.createElement("li");
     empty.className = "goal-item";
-    empty.textContent = "No goals yet. Add one to start building your savings plan.";
+    empty.textContent = "No goals yet. Add one to start your savings plan.";
     nodes.goalsList.appendChild(empty);
     return;
   }
@@ -137,7 +165,19 @@ function renderGoals(goals) {
     item.querySelector(".goal-meta").textContent =
       `${currency.format(goal.currentAmount)} saved of ${currency.format(goal.targetAmount)}`;
     item.querySelector(".goal-progress-fill").style.width = `${pct}%`;
+    item.querySelector(".goal-fund-btn").dataset.goalId = String(goal.id);
     nodes.goalsList.appendChild(item);
+  }
+
+  for (const btn of nodes.goalsList.querySelectorAll(".goal-fund-btn")) {
+    btn.addEventListener("click", async () => {
+      const goalId = Number(btn.dataset.goalId);
+      await api(`/goals/${goalId}/fund`, {
+        method: "PATCH",
+        body: JSON.stringify({ amount: 100 }),
+      });
+      await refresh();
+    });
   }
 }
 
@@ -148,8 +188,9 @@ async function refresh() {
     api("/transactions"),
     api("/goals"),
   ]);
-  const goals = goalsResponse.goals || [];
-  renderDashboard(dashboard, goals);
+  const goals = dashboard.goals || goalsResponse.goals || [];
+  renderDashboard(dashboard);
+  renderSettings(dashboard.settings || {});
   renderInsights(insights.insights || []);
   renderCategories(dashboard.topCategories || []);
   renderTransactions(transactionsResponse.transactions || []);
@@ -162,6 +203,7 @@ nodes.transactionForm.addEventListener("submit", async (event) => {
   const payload = {
     description: String(form.get("description") || "").trim(),
     amount: Number(form.get("amount")),
+    account: String(form.get("account") || "checking"),
     date: form.get("date") || undefined,
   };
   await api("/transactions", { method: "POST", body: JSON.stringify(payload) });
@@ -182,7 +224,51 @@ nodes.goalForm.addEventListener("submit", async (event) => {
   await refresh();
 });
 
+nodes.quickExpenseBtn.addEventListener("click", () => {
+  setPage("transactions");
+  nodes.transactionForm.elements.description.value = "New expense";
+  nodes.transactionForm.elements.amount.value = "-1";
+  nodes.transactionForm.elements.account.value = nodes.accountSelect.value === "all" ? "checking" : nodes.accountSelect.value;
+  nodes.transactionForm.elements.description.focus();
+});
+
+nodes.quickIncomeBtn.addEventListener("click", () => {
+  setPage("transactions");
+  nodes.transactionForm.elements.description.value = "New income";
+  nodes.transactionForm.elements.amount.value = "";
+  nodes.transactionForm.elements.account.value = nodes.accountSelect.value === "all" ? "checking" : nodes.accountSelect.value;
+  nodes.transactionForm.elements.description.focus();
+});
+
+nodes.quickGoalBtn.addEventListener("click", () => {
+  setPage("goals");
+  nodes.goalForm.elements.name.focus();
+});
+
+nodes.accountSelect.addEventListener("change", () => {
+  const value = nodes.accountSelect.value;
+  if (value === "all") setPage("dashboard");
+  else if (value === "savings") setPage("goals");
+  else setPage("transactions");
+  if (value !== "all") {
+    nodes.transactionForm.elements.account.value = value;
+  }
+});
+
+nodes.settingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(nodes.settingsForm);
+  const payload = {
+    baseCheckingBalance: Number(form.get("baseCheckingBalance")),
+    baseSavingsBalance: Number(form.get("baseSavingsBalance")),
+    monthlyBudget: Number(form.get("monthlyBudget")),
+  };
+  await api("/settings", { method: "PATCH", body: JSON.stringify(payload) });
+  await refresh();
+});
+
 setGreetingDate();
+setPage("dashboard");
 refresh().catch((err) => {
   console.error(err);
   alert(err.message);

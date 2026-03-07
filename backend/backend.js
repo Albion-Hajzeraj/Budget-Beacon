@@ -12,6 +12,11 @@ const DEFAULT_STATE = {
   goals: [],
   nextTransactionId: 1,
   nextGoalId: 1,
+  settings: {
+    baseCheckingBalance: 4500,
+    baseSavingsBalance: 0,
+    monthlyBudget: 3000,
+  },
 };
 
 const state = { ...DEFAULT_STATE };
@@ -31,7 +36,7 @@ function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(JSON.stringify(payload));
@@ -102,6 +107,17 @@ function normalizeAmount(amount) {
   return Math.round(n * 100) / 100;
 }
 
+function normalizeSettings(input = {}) {
+  const baseCheckingBalance = normalizeAmount(input.baseCheckingBalance);
+  const baseSavingsBalance = normalizeAmount(input.baseSavingsBalance);
+  const monthlyBudget = normalizeAmount(input.monthlyBudget);
+  return {
+    baseCheckingBalance: baseCheckingBalance === null ? 4500 : baseCheckingBalance,
+    baseSavingsBalance: baseSavingsBalance === null ? 0 : Math.max(0, baseSavingsBalance),
+    monthlyBudget: monthlyBudget === null ? 3000 : Math.max(0, monthlyBudget),
+  };
+}
+
 async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
 }
@@ -115,6 +131,7 @@ async function loadState() {
     state.goals = Array.isArray(parsed.goals) ? parsed.goals : [];
     state.nextTransactionId = Number.isInteger(parsed.nextTransactionId) ? parsed.nextTransactionId : 1;
     state.nextGoalId = Number.isInteger(parsed.nextGoalId) ? parsed.nextGoalId : 1;
+    state.settings = normalizeSettings(parsed.settings);
   } catch (err) {
     if (err.code !== "ENOENT") throw err;
     await persistState();
@@ -154,6 +171,7 @@ function addTransaction(tx) {
 
   const category = tx.category || categorize(description, amount);
   const direction = amount >= 0 ? "income" : "expense";
+  const account = ["checking", "savings", "credit"].includes(tx.account) ? tx.account : "checking";
 
   const built = {
     id: state.nextTransactionId++,
@@ -162,6 +180,7 @@ function addTransaction(tx) {
     amount,
     direction,
     category,
+    account,
     source: tx.source || "manual",
     createdAt: new Date().toISOString(),
   };
@@ -179,6 +198,25 @@ function getDashboardSummary() {
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
   const net = income - expenses;
   const savingsRate = income > 0 ? (net / income) * 100 : 0;
+  const goalAllocated = state.goals.reduce((sum, g) => sum + Number(g.currentAmount || 0), 0);
+
+  let checkingDelta = 0;
+  let savingsDelta = 0;
+  let creditUsed = 0;
+
+  for (const tx of state.transactions) {
+    const account = tx.account || "checking";
+    if (account === "checking") checkingDelta += tx.amount;
+    if (account === "savings") savingsDelta += tx.amount;
+    if (account === "credit") creditUsed += -tx.amount;
+  }
+  creditUsed = Math.max(0, creditUsed);
+
+  const checkingBalance = state.settings.baseCheckingBalance + checkingDelta - goalAllocated;
+  const savingsBalance = state.settings.baseSavingsBalance + savingsDelta + goalAllocated;
+  const availableBalance = checkingBalance;
+  const netWorth = checkingBalance + savingsBalance - creditUsed;
+  const budgetRemaining = state.settings.monthlyBudget - expenses;
 
   const byCategory = {};
   for (const tx of state.transactions) {
@@ -209,6 +247,18 @@ function getDashboardSummary() {
       net: Number(net.toFixed(2)),
       savingsRatePct: Number(savingsRate.toFixed(1)),
     },
+    balances: {
+      available: Number(availableBalance.toFixed(2)),
+      checking: Number(checkingBalance.toFixed(2)),
+      savings: Number(savingsBalance.toFixed(2)),
+      creditUsed: Number(creditUsed.toFixed(2)),
+      netWorth: Number(netWorth.toFixed(2)),
+    },
+    budget: {
+      monthlyBudget: Number(state.settings.monthlyBudget.toFixed(2)),
+      remaining: Number(budgetRemaining.toFixed(2)),
+    },
+    settings: state.settings,
     topCategories,
     goals,
     transactionCount: state.transactions.length,
@@ -257,6 +307,23 @@ async function handler(req, res) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/settings") {
+    sendJson(res, 200, { settings: state.settings });
+    return;
+  }
+
+  if (req.method === "PATCH" && url.pathname === "/settings") {
+    const body = await parseBody(req);
+    const nextSettings = {
+      ...state.settings,
+      ...body,
+    };
+    state.settings = normalizeSettings(nextSettings);
+    await persistState();
+    sendJson(res, 200, { settings: state.settings });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/transactions") {
     const transactions = [...state.transactions].sort((a, b) => b.date.localeCompare(a.date));
     sendJson(res, 200, { transactions });
@@ -299,6 +366,26 @@ async function handler(req, res) {
     }
     await persistState();
     sendJson(res, 201, { transaction: built });
+    return;
+  }
+
+  const goalFundMatch = url.pathname.match(/^\/goals\/(\d+)\/fund$/);
+  if (req.method === "PATCH" && goalFundMatch) {
+    const goalId = Number(goalFundMatch[1]);
+    const body = await parseBody(req);
+    const amount = normalizeAmount(body.amount);
+    if (amount === null || amount <= 0) {
+      sendJson(res, 400, { error: "Fund amount must be a positive number." });
+      return;
+    }
+    const goal = state.goals.find((g) => g.id === goalId);
+    if (!goal) {
+      sendJson(res, 404, { error: "Goal not found." });
+      return;
+    }
+    goal.currentAmount = Number((goal.currentAmount + amount).toFixed(2));
+    await persistState();
+    sendJson(res, 200, { goal });
     return;
   }
 
