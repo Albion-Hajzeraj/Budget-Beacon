@@ -6,6 +6,7 @@ const path = require("path");
 const PORT = process.env.PORT || 4000;
 const DATA_DIR = path.join(__dirname, "data");
 const STORE_FILE = path.join(DATA_DIR, "store.json");
+const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
 const DEFAULT_STATE = {
   transactions: [],
   goals: [],
@@ -34,6 +35,41 @@ function sendJson(res, statusCode, payload) {
     "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(JSON.stringify(payload));
+}
+
+function sendFile(res, statusCode, body, contentType) {
+  res.writeHead(statusCode, { "Content-Type": contentType });
+  res.end(body);
+}
+
+async function serveStatic(urlPath, res) {
+  const cleanPath = urlPath === "/" ? "/index.html" : urlPath;
+  const target = path.normalize(path.join(FRONTEND_DIR, cleanPath));
+  if (!target.startsWith(FRONTEND_DIR)) {
+    sendFile(res, 403, "Forbidden", "text/plain; charset=utf-8");
+    return true;
+  }
+
+  try {
+    const file = await fs.readFile(target);
+    const ext = path.extname(target).toLowerCase();
+    const mimeByExt = {
+      ".html": "text/html; charset=utf-8",
+      ".css": "text/css; charset=utf-8",
+      ".js": "application/javascript; charset=utf-8",
+      ".json": "application/json; charset=utf-8",
+      ".svg": "image/svg+xml",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".ico": "image/x-icon",
+    };
+    sendFile(res, 200, file, mimeByExt[ext] || "application/octet-stream");
+    return true;
+  } catch (err) {
+    if (err.code === "ENOENT") return false;
+    throw err;
+  }
 }
 
 function parseBody(req) {
@@ -310,6 +346,11 @@ async function handler(req, res) {
     const insights = buildInsights(summary);
     sendJson(res, 200, { generatedAt: new Date().toISOString(), insights, summary });
     return;
+  }
+
+  if (req.method === "GET") {
+    const served = await serveStatic(url.pathname, res);
+    if (served) return;
   }
 
   sendJson(res, 404, { error: "Route not found" });

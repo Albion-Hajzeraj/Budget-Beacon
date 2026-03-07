@@ -1,9 +1,10 @@
-# BudgetBeacon (MVP Start)
+# BudgetBeacon (Web MVP)
 
-First implementation of the BudgetBeacon backend API.
+First implementation of BudgetBeacon as a web app served by a Node backend.
 
 ## What this includes
 
+- Browser frontend (dashboard, insights, goals, transaction forms, import form)
 - Transaction import and manual transaction creation
 - Basic auto-categorization from merchant/description keywords
 - Savings goal tracking
@@ -17,8 +18,15 @@ First implementation of the BudgetBeacon backend API.
 node backend/backend.js
 ```
 
-Server runs at `http://localhost:4000`.
+Web app runs at `http://localhost:4000`.
 Data is automatically persisted to `backend/data/store.json` and restored on restart.
+
+## Project structure
+
+- `backend/backend.js` - API + static file server
+- `frontend/index.html` - web UI
+- `frontend/style.css` - UI styles
+- `frontend/app.js` - frontend logic and API calls
 
 ## Quick test flow
 
