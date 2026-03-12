@@ -22,6 +22,7 @@
       </div>
       <button class="quick-btn" id="loginBtn" type="button">Log in</button>
       <button class="quick-btn" id="signupBtn" type="button">Sign up</button>
+      <button class="quick-btn hidden" id="logoutBtn" type="button">Log out</button>
       <button class="quick-btn" id="themeToggle" type="button">Dark</button>
       <div class="profile-chip">HP</div>
     </header>
@@ -32,6 +33,7 @@
         <button class="side-link" data-page="transactions">Cash Flow</button>
         <button class="side-link" data-page="goals">Savings Planner</button>
         <button class="side-link" data-page="insights">Coach Notes</button>
+        <button class="side-link" data-page="timeline">Timeline</button>
       </aside>
 
       <section class="workspace">
@@ -103,6 +105,24 @@
           </section>
 
           <article class="panel">
+            <h3>Financial Health Score</h3>
+            <div class="health-score">
+              <div class="health-score-main">
+                <strong id="healthScoreValue">0</strong>
+                <span>/ 100</span>
+              </div>
+              <p id="healthScoreSummary" class="subtle">Add income and expenses to calculate your score.</p>
+            </div>
+            <ul id="healthScoreBreakdown" class="health-breakdown"></ul>
+          </article>
+
+          <article class="panel">
+            <h3>Anomaly Alerts</h3>
+            <p class="subtle" id="anomalySummary">No unusual spending detected.</p>
+            <ul id="anomalyList" class="anomaly-list"></ul>
+          </article>
+
+          <article class="panel">
             <h3>Bank Setup</h3>
             <form id="settingsForm" class="form form-inline">
               <input name="baseCheckingBalance" type="number" step="0.01" placeholder="Base checking balance" />
@@ -127,6 +147,20 @@
               </select>
               <input name="date" type="date" />
               <button type="submit">Save transaction</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <h3>Quick Add (Natural Language)</h3>
+            <form id="nlpForm" class="form">
+              <textarea
+                name="nlpText"
+                rows="3"
+                placeholder="Example: I spent 20 euros on groceries today"
+                required
+              ></textarea>
+              <button type="submit">Add from sentence</button>
+              <p id="nlpStatus" class="form-status"></p>
             </form>
           </article>
 
@@ -166,12 +200,61 @@
 
         <section class="page" data-page="insights">
           <article class="panel">
+            <h3>Budget Forecast</h3>
+            <p id="forecastSummary" class="forecast-summary">Forecast will appear once you add spending activity.</p>
+            <p id="forecastWarning" class="forecast-warning hidden"></p>
+            <div id="forecastList" class="forecast-list"></div>
+          </article>
+          <article class="panel">
+            <h3>Spending Trends</h3>
+            <ul id="autoInsightsList" class="insight-list"></ul>
+          </article>
+          <article class="panel">
             <h3>Spending by Category</h3>
             <div id="categoriesChart" class="bars"></div>
           </article>
           <article class="panel">
             <h3>Coaching Feed</h3>
             <ul id="insightsListSecondary" class="insight-list"></ul>
+          </article>
+        </section>
+
+        <section class="page" data-page="timeline">
+          <article class="panel">
+            <h3>Financial Timeline</h3>
+            <p class="subtle">Scroll through months to see trends, category shifts, and major transactions.</p>
+            <div id="timelineMonths" class="timeline-strip"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <h3 id="timelineTitle">Month Overview</h3>
+              <span id="timelineCount">0 transactions</span>
+            </div>
+            <div class="timeline-summary">
+              <div>
+                <small>Income</small>
+                <strong id="timelineIncome">$0.00</strong>
+              </div>
+              <div>
+                <small>Expenses</small>
+                <strong id="timelineExpenses">$0.00</strong>
+              </div>
+              <div>
+                <small>Net</small>
+                <strong id="timelineNet">$0.00</strong>
+              </div>
+            </div>
+            <div class="grid-two">
+              <div>
+                <h4>Category Mix</h4>
+                <div id="timelineCategories" class="bars"></div>
+              </div>
+              <div>
+                <h4>Major Transactions</h4>
+                <ul id="timelineMajor" class="timeline-major"></ul>
+              </div>
+            </div>
           </article>
         </section>
       </section>
@@ -181,10 +264,11 @@
       <div class="auth-card">
         <button id="authCloseBtn" class="auth-close" type="button">x</button>
         <h3 id="authTitle">Welcome Back</h3>
-        <p id="authSubtitle">This is a design preview. Authentication is not connected yet.</p>
+        <p id="authSubtitle">Sign in to access your BudgetBeacon workspace.</p>
         <form id="authForm" class="form">
-          <input type="email" placeholder="Email address" required />
-          <input type="password" placeholder="Password" required />
+          <input id="authName" name="name" placeholder="Full name" />
+          <input id="authEmail" name="email" type="email" placeholder="Email address" required />
+          <input id="authPassword" name="password" type="password" placeholder="Password (min 6 chars)" required />
           <button id="authSubmitBtn" type="submit">Log in</button>
         </form>
       </div>

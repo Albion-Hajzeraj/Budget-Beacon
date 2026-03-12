@@ -1,5 +1,7 @@
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const THEME_KEY = "budgetbeacon_theme";
+const AUTH_TOKEN_KEY = "budgetbeacon_token";
+const AUTH_USER_KEY = "budgetbeacon_user";
 
 const nodes = {
   sideLinks: [...document.querySelectorAll(".side-link")],
@@ -9,6 +11,7 @@ const nodes = {
   quickGoalBtn: document.getElementById("quickGoalBtn"),
   loginBtn: document.getElementById("loginBtn"),
   signupBtn: document.getElementById("signupBtn"),
+  logoutBtn: document.getElementById("logoutBtn"),
   themeToggle: document.getElementById("themeToggle"),
   todayLabel: document.getElementById("todayLabel"),
   availableBalance: document.getElementById("availableBalance"),
@@ -23,19 +26,42 @@ const nodes = {
   insightsList: document.getElementById("insightsList"),
   insightsListSecondary: document.getElementById("insightsListSecondary"),
   categoriesChart: document.getElementById("categoriesChart"),
+  autoInsightsList: document.getElementById("autoInsightsList"),
+  forecastSummary: document.getElementById("forecastSummary"),
+  forecastWarning: document.getElementById("forecastWarning"),
+  forecastList: document.getElementById("forecastList"),
+  timelineMonths: document.getElementById("timelineMonths"),
+  timelineTitle: document.getElementById("timelineTitle"),
+  timelineCount: document.getElementById("timelineCount"),
+  timelineIncome: document.getElementById("timelineIncome"),
+  timelineExpenses: document.getElementById("timelineExpenses"),
+  timelineNet: document.getElementById("timelineNet"),
+  timelineCategories: document.getElementById("timelineCategories"),
+  timelineMajor: document.getElementById("timelineMajor"),
+  healthScoreValue: document.getElementById("healthScoreValue"),
+  healthScoreSummary: document.getElementById("healthScoreSummary"),
+  healthScoreBreakdown: document.getElementById("healthScoreBreakdown"),
+  anomalySummary: document.getElementById("anomalySummary"),
+  anomalyList: document.getElementById("anomalyList"),
   txTableBody: document.getElementById("txTableBody"),
   activityCount: document.getElementById("activityCount"),
   goalsList: document.getElementById("goalsList"),
   transactionForm: document.getElementById("transactionForm"),
+  nlpForm: document.getElementById("nlpForm"),
+  nlpStatus: document.getElementById("nlpStatus"),
   goalForm: document.getElementById("goalForm"),
   settingsForm: document.getElementById("settingsForm"),
   settingsStatus: document.getElementById("settingsStatus"),
   goalRowTpl: document.getElementById("goalRowTpl"),
   authModal: document.getElementById("authModal"),
   authTitle: document.getElementById("authTitle"),
+  authSubtitle: document.getElementById("authSubtitle"),
   authSubmitBtn: document.getElementById("authSubmitBtn"),
   authCloseBtn: document.getElementById("authCloseBtn"),
   authForm: document.getElementById("authForm"),
+  authName: document.getElementById("authName"),
+  authEmail: document.getElementById("authEmail"),
+  authPassword: document.getElementById("authPassword"),
 };
 
 function applyTheme(theme) {
@@ -77,11 +103,21 @@ for (const link of nodes.sideLinks) {
 }
 
 async function api(path, options = {}) {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers,
     ...options,
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    clearAuth();
+    openAuth("login");
+  }
   if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
   return data;
 }
@@ -173,6 +209,19 @@ function renderInsights(items) {
   }
 }
 
+function renderAutoInsights(items) {
+  if (!nodes.autoInsightsList) return;
+  const data = items.length
+    ? items
+    : ["Keep logging transactions to unlock deeper spending trends."];
+  nodes.autoInsightsList.innerHTML = "";
+  for (const text of data) {
+    const li = document.createElement("li");
+    li.textContent = text;
+    nodes.autoInsightsList.appendChild(li);
+  }
+}
+
 function renderCategories(topCategories) {
   nodes.categoriesChart.innerHTML = "";
   if (!topCategories.length) {
@@ -192,6 +241,199 @@ function renderCategories(topCategories) {
   }
 }
 
+function renderForecast(forecast) {
+  if (!nodes.forecastSummary || !nodes.forecastList) return;
+  nodes.forecastList.innerHTML = "";
+  const items = forecast?.categories || [];
+  if (!items.length) {
+    nodes.forecastSummary.textContent = "Forecast will appear once you add spending activity.";
+    nodes.forecastWarning.classList.add("hidden");
+    return;
+  }
+
+  const monthLabel = new Date(forecast.month.year, forecast.month.month - 1, 1).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+  const basisLabel = forecast.basis === "last_30_days" ? "last 30 days" : "month-to-date";
+  nodes.forecastSummary.textContent = `Projected ${monthLabel} spend: ${currency.format(
+    forecast.projectedTotal
+  )} based on ${basisLabel} activity.`;
+
+  if (forecast.warning) {
+    nodes.forecastWarning.textContent = `Warning: projected spend exceeds your budget of ${currency.format(
+      forecast.budget
+    )}.`;
+    nodes.forecastWarning.classList.remove("hidden");
+  } else {
+    nodes.forecastWarning.classList.add("hidden");
+  }
+
+  for (const item of items) {
+    const row = document.createElement("div");
+    row.className = "forecast-item";
+    row.innerHTML = `
+      <div class="forecast-meta">
+        <span>${item.category}</span>
+        <strong>${currency.format(item.projected)}</strong>
+      </div>
+      <div class="forecast-sub">
+        <span>Daily avg ${currency.format(item.dailyAverage)}</span>
+        <span>${currency.format(item.spentToDate)} spent so far</span>
+      </div>
+    `;
+    nodes.forecastList.appendChild(row);
+  }
+}
+
+function renderHealthScore(healthScore) {
+  if (!nodes.healthScoreValue || !nodes.healthScoreBreakdown || !nodes.healthScoreSummary) return;
+  if (!healthScore) {
+    nodes.healthScoreValue.textContent = "0";
+    nodes.healthScoreSummary.textContent = "Add income and expenses to calculate your score.";
+    nodes.healthScoreBreakdown.innerHTML = "";
+    return;
+  }
+  nodes.healthScoreValue.textContent = String(healthScore.score ?? 0);
+  nodes.healthScoreSummary.textContent =
+    healthScore.score >= 80
+      ? "Strong position. Maintain your current habits."
+      : healthScore.score >= 60
+      ? "Solid progress. A few tweaks can boost your score."
+      : "Needs attention. Focus on trimming expenses and building savings.";
+
+  nodes.healthScoreBreakdown.innerHTML = "";
+  for (const item of healthScore.breakdown || []) {
+    const li = document.createElement("li");
+    li.className = "health-breakdown-item";
+    li.innerHTML = `
+      <div>
+        <strong>${item.label}</strong>
+        <span>${item.note}</span>
+      </div>
+      <div class="health-metrics">
+        <span>${Number(item.value).toFixed(1)}%</span>
+        <small>${Number(item.score).toFixed(1)} / 100</small>
+      </div>
+    `;
+    nodes.healthScoreBreakdown.appendChild(li);
+  }
+}
+
+let timelineSelection = null;
+function renderTimeline(timeline) {
+  if (!nodes.timelineMonths) return;
+  const months = timeline?.months || [];
+  nodes.timelineMonths.innerHTML = "";
+  if (!months.length) {
+    nodes.timelineMonths.textContent = "No historical data yet.";
+    if (nodes.timelineTitle) nodes.timelineTitle.textContent = "Month Overview";
+    if (nodes.timelineCount) nodes.timelineCount.textContent = "0 transactions";
+    if (nodes.timelineIncome) nodes.timelineIncome.textContent = currency.format(0);
+    if (nodes.timelineExpenses) nodes.timelineExpenses.textContent = currency.format(0);
+    if (nodes.timelineNet) nodes.timelineNet.textContent = currency.format(0);
+    if (nodes.timelineCategories) nodes.timelineCategories.innerHTML = "";
+    if (nodes.timelineMajor) nodes.timelineMajor.innerHTML = "";
+    return;
+  }
+
+  if (!timelineSelection || !months.find((m) => m.key === timelineSelection)) {
+    timelineSelection = months[0].key;
+  }
+
+  for (const month of months) {
+    const btn = document.createElement("button");
+    btn.className = "timeline-chip";
+    btn.type = "button";
+    btn.textContent = month.label;
+    if (month.key === timelineSelection) btn.classList.add("active");
+    btn.addEventListener("click", () => {
+      timelineSelection = month.key;
+      renderTimeline(timeline);
+    });
+    nodes.timelineMonths.appendChild(btn);
+  }
+
+  const selected = months.find((m) => m.key === timelineSelection) || months[0];
+  if (nodes.timelineTitle) nodes.timelineTitle.textContent = selected.label;
+  if (nodes.timelineCount) {
+    nodes.timelineCount.textContent = `${selected.transactionCount} transaction${
+      selected.transactionCount === 1 ? "" : "s"
+    }`;
+  }
+  if (nodes.timelineIncome) nodes.timelineIncome.textContent = currency.format(selected.totals.income);
+  if (nodes.timelineExpenses) nodes.timelineExpenses.textContent = currency.format(selected.totals.expenses);
+  if (nodes.timelineNet) nodes.timelineNet.textContent = currency.format(selected.totals.net);
+
+  if (nodes.timelineCategories) {
+    nodes.timelineCategories.innerHTML = "";
+    if (!selected.categories.length) {
+      nodes.timelineCategories.textContent = "No expenses recorded.";
+    } else {
+      const max = Math.max(...selected.categories.map((x) => x.total), 1);
+      for (const item of selected.categories) {
+        const width = (item.total / max) * 100;
+        const row = document.createElement("div");
+        row.className = "bar";
+        row.innerHTML = `
+          <div class="bar-meta"><span>${item.category}</span><strong>${currency.format(item.total)}</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:${width.toFixed(1)}%"></div></div>
+        `;
+        nodes.timelineCategories.appendChild(row);
+      }
+    }
+  }
+
+  if (nodes.timelineMajor) {
+    nodes.timelineMajor.innerHTML = "";
+    if (!selected.majorTransactions.length) {
+      const li = document.createElement("li");
+      li.textContent = "No major transactions yet.";
+      nodes.timelineMajor.appendChild(li);
+    } else {
+      for (const tx of selected.majorTransactions) {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <div>
+            <strong>${tx.description}</strong>
+            <span>${tx.category || "Other"} • ${tx.date}</span>
+          </div>
+          <div class="timeline-amount">${currency.format(tx.amount)}</div>
+        `;
+        nodes.timelineMajor.appendChild(li);
+      }
+    }
+  }
+}
+
+let anomalyIdSet = new Set();
+function renderAnomalies(payload) {
+  if (!nodes.anomalyList || !nodes.anomalySummary) return;
+  const anomalies = payload?.anomalies || [];
+  nodes.anomalyList.innerHTML = "";
+  anomalyIdSet = new Set(anomalies.map((item) => item.id));
+  if (!anomalies.length) {
+    nodes.anomalySummary.textContent = "No unusual spending detected.";
+    return;
+  }
+  nodes.anomalySummary.textContent = `${anomalies.length} unusual charge${
+    anomalies.length === 1 ? "" : "s"
+  } detected in the last 30 days.`;
+  for (const item of anomalies) {
+    const li = document.createElement("li");
+    li.className = "anomaly-item";
+    li.innerHTML = `
+      <div>
+        <strong>${item.category}</strong>
+        <span>${item.description}</span>
+        <small>${item.date}</small>
+      </div>
+      <div class="anomaly-amount">${currency.format(-item.amount)}</div>
+    `;
+    nodes.anomalyList.appendChild(li);
+  }
+}
+
 function renderTransactions(transactions) {
   nodes.txTableBody.innerHTML = "";
   nodes.activityCount.textContent = `${transactions.length} transaction${transactions.length === 1 ? "" : "s"}`;
@@ -204,6 +446,7 @@ function renderTransactions(transactions) {
   for (const tx of transactions) {
     const tr = document.createElement("tr");
     const cls = tx.amount < 0 ? "negative" : "positive";
+    if (anomalyIdSet.has(tx.id)) tr.classList.add("anomaly-row");
     tr.innerHTML = `
       <td>${tx.date}</td>
       <td>${tx.description}</td>
@@ -248,19 +491,85 @@ function renderGoals(goals) {
 }
 
 async function refresh() {
-  const [dashboard, insights, transactionsResponse, goalsResponse] = await Promise.all([
+  const [dashboard, insights, transactionsResponse, goalsResponse, forecast, anomalies, timeline] = await Promise.all([
     api("/dashboard"),
     api("/insights"),
     api("/transactions"),
     api("/goals"),
+    api("/forecast"),
+    api("/anomalies"),
+    api("/timeline?months=12"),
   ]);
   const goals = dashboard.goals || goalsResponse.goals || [];
   renderDashboard(dashboard);
   renderSettings(dashboard.settings || {});
   renderInsights(insights.insights || []);
+  renderAutoInsights(insights.autoInsights || []);
   renderCategories(dashboard.topCategories || []);
+  renderForecast(forecast || {});
+  renderTimeline(timeline || { months: [] });
+  renderHealthScore(dashboard.healthScore || null);
+  renderAnomalies(anomalies || {});
   renderTransactions(transactionsResponse.transactions || []);
   renderGoals(goals);
+}
+
+function setProfileChip(user) {
+  const chip = document.querySelector(".profile-chip");
+  if (!chip) return;
+  if (!user) {
+    chip.textContent = "—";
+    return;
+  }
+  const name = user.name || user.email || "User";
+  const initials = name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  chip.textContent = initials || "U";
+}
+
+function setAuthUI(isAuthed, user) {
+  nodes.loginBtn.classList.toggle("hidden", isAuthed);
+  nodes.signupBtn.classList.toggle("hidden", isAuthed);
+  nodes.logoutBtn.classList.toggle("hidden", !isAuthed);
+  setProfileChip(user);
+}
+
+function storeAuth(token, user) {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  setAuthUI(true, user);
+}
+
+function resetUI() {
+  renderDashboard({
+    totals: { income: 0, expenses: 0, net: 0, savingsRatePct: 0 },
+    balances: { available: 0, checking: 0, savings: 0, creditUsed: 0 },
+    budget: { monthlyBudget: 0, remaining: 0 },
+    settings: { baseCheckingBalance: 0, baseSavingsBalance: 0, monthlyBudget: 0 },
+    topCategories: [],
+    goals: [],
+    transactionCount: 0,
+  });
+  renderSettings({ baseCheckingBalance: 0, baseSavingsBalance: 0, monthlyBudget: 0 });
+  renderInsights([]);
+  renderAutoInsights([]);
+  renderCategories([]);
+  renderForecast({ categories: [] });
+  renderTimeline({ months: [] });
+  renderHealthScore(null);
+  renderAnomalies({ anomalies: [] });
+  renderTransactions([]);
+  renderGoals([]);
+}
+
+function clearAuth() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+  setAuthUI(false, null);
+  resetUI();
 }
 
 nodes.transactionForm.addEventListener("submit", async (event) => {
@@ -275,6 +584,28 @@ nodes.transactionForm.addEventListener("submit", async (event) => {
   await api("/transactions", { method: "POST", body: JSON.stringify(payload) });
   nodes.transactionForm.reset();
   await refresh();
+});
+
+nodes.nlpForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(nodes.nlpForm);
+  const text = String(form.get("nlpText") || "").trim();
+  if (!text) return;
+  nodes.nlpStatus.textContent = "Parsing...";
+  nodes.nlpStatus.className = "form-status";
+  try {
+    await api("/transactions/nlp", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    nodes.nlpForm.reset();
+    nodes.nlpStatus.textContent = "Transaction added from sentence.";
+    nodes.nlpStatus.className = "form-status success";
+    await refresh();
+  } catch (err) {
+    nodes.nlpStatus.textContent = err.message || "Could not parse that sentence.";
+    nodes.nlpStatus.className = "form-status error";
+  }
 });
 
 nodes.goalForm.addEventListener("submit", async (event) => {
@@ -348,6 +679,12 @@ function openAuth(mode) {
   const isLogin = mode === "login";
   nodes.authTitle.textContent = isLogin ? "Welcome Back" : "Create Your Account";
   nodes.authSubmitBtn.textContent = isLogin ? "Log in" : "Sign up";
+  nodes.authSubtitle.textContent = isLogin
+    ? "Sign in to access your BudgetBeacon workspace."
+    : "Create an account to save and secure your data.";
+  nodes.authForm.dataset.mode = mode;
+  nodes.authName.classList.toggle("hidden", isLogin);
+  nodes.authName.required = !isLogin;
   nodes.authModal.classList.remove("hidden");
   nodes.authModal.setAttribute("aria-hidden", "false");
 }
@@ -363,16 +700,61 @@ nodes.authCloseBtn.addEventListener("click", closeAuth);
 nodes.authModal.addEventListener("click", (event) => {
   if (event.target === nodes.authModal) closeAuth();
 });
-nodes.authForm.addEventListener("submit", (event) => {
+nodes.logoutBtn.addEventListener("click", async () => {
+  try {
+    await api("/auth/logout", { method: "POST" });
+  } catch (_err) {
+    // Best effort logout
+  }
+  clearAuth();
+  openAuth("login");
+});
+
+nodes.authForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  alert("Authentication UI added. Backend auth is not connected yet.");
+  const mode = nodes.authForm.dataset.mode || "login";
+  const payload = {
+    email: String(nodes.authEmail.value || "").trim(),
+    password: String(nodes.authPassword.value || ""),
+  };
+  if (mode === "signup") {
+    payload.name = String(nodes.authName.value || "").trim();
+  }
+  try {
+    const endpoint = mode === "signup" ? "/auth/signup" : "/auth/login";
+    const data = await api(endpoint, { method: "POST", body: JSON.stringify(payload) });
+    if (data.token && data.user) {
+      storeAuth(data.token, data.user);
+      closeAuth();
+      await refresh();
+    }
+  } catch (err) {
+    alert(err.message || "Authentication failed.");
+  }
 });
 
 initTheme();
 setGreetingDate();
 setPage("dashboard");
 initScrollAnimations();
-refresh().catch((err) => {
-  console.error(err);
-  alert(err.message);
-});
+const cachedUser = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_USER_KEY) || "null");
+  } catch (_err) {
+    return null;
+  }
+})();
+setAuthUI(Boolean(localStorage.getItem(AUTH_TOKEN_KEY)), cachedUser);
+if (localStorage.getItem(AUTH_TOKEN_KEY)) {
+  api("/auth/me")
+    .then((data) => {
+      if (data.user) storeAuth(localStorage.getItem(AUTH_TOKEN_KEY), data.user);
+      return refresh();
+    })
+    .catch((err) => {
+      console.error(err);
+    });
+} else {
+  resetUI();
+  openAuth("login");
+}
